@@ -42,13 +42,13 @@ app.post("/api/verdict", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Anthropic proxy (tweet search)
+// Tweet search (also via OpenRouter — same key)
 app.post("/api/tweets", async (req, res) => {
-  if (!process.env.ANTHROPIC_KEY) return res.status(500).json({ error: "ANTHROPIC_KEY not set in .env" });
+  if (!process.env.OPENROUTER_KEY) return res.status(500).json({ error: "OPENROUTER_KEY not set in .env" });
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
+    const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": process.env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+      headers: { Authorization: `Bearer ${process.env.OPENROUTER_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify(req.body),
     });
     res.json(await r.json());
@@ -61,6 +61,5 @@ app.get("*", (req, res) => res.sendFile(path.join(__dirname, "..", "frontend", "
 
 app.listen(PORT, () => {
   console.log(`\n  ✓ ishealarpornot running → http://localhost:${PORT}`);
-  console.log(`  OPENROUTER_KEY: ${process.env.OPENROUTER_KEY ? "✓" : "✗ MISSING"}`);
-  console.log(`  ANTHROPIC_KEY:  ${process.env.ANTHROPIC_KEY ? "✓" : "✗ MISSING"}\n`);
+  console.log(`  OPENROUTER_KEY: ${process.env.OPENROUTER_KEY ? "✓" : "✗ MISSING"}\n`);
 });
