@@ -24,34 +24,91 @@ async function searchDexScreener(ticker) {
 }
 
 async function discoverTweets(handle) {
-  const res = await fetch("/api/tweets", {
+  // Step 1: broad search to find who they are + initial tickers
+  const res1 = await fetch("/api/tweets", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "openai/gpt-4o-mini-search-preview", max_tokens: 4000,
-      messages: [{ role: "user", content: `Search for the crypto Twitter/X account @${handle}. Find what cryptocurrency tokens they have tweeted about or promoted in the past year.
+      model: "openai/gpt-4o-mini-search-preview", max_tokens: 3000,
+      messages: [{ role: "user", content: `You are researching the Twitter/X account @${handle} for crypto activity.
 
-Search for: "@${handle} crypto", "@${handle} token", "from:${handle} $"
+Do ALL of these searches and report findings from each:
+1. Search: "site:x.com ${handle} $"
+2. Search: "${handle} crypto token"
+3. Search: "site:x.com/${handle}" cashtag
+4. Search: "${handle} bullish buy"
+5. Search: "site:nitter.net/${handle}"
 
-For each ticker found provide symbol, dates, what they said, mention count.
+From all results, list EVERY cryptocurrency ticker symbol (like $SOL, $PEPE, $LITCOIN, $PURR etc) that @${handle} has mentioned. Look carefully at ALL search results — even small mentions count.
 
-Respond ONLY with valid JSON, no markdown:
+Also find: their bio/description, approximate follower count.
+
+Respond ONLY with valid JSON:
 {
   "handle": "${handle}",
-  "bio": "brief description",
-  "followerCount": "approximate",
-  "tickers": [
-    { "symbol": "SOL", "mentions": [{ "date": "2025-01-15", "sentiment": "bullish", "text": "paraphrased tweet", "engagement": "high" }], "totalMentions": 5, "overallSentiment": "bullish" }
-  ],
-  "shillFrequency": "X tweets per week",
-  "topTicker": "$SOL"
+  "bio": "who they are",
+  "followerCount": "number",
+  "tickers_found": ["TICKER1", "TICKER2"],
+  "raw_mentions": [
+    { "ticker": "TICKER1", "context": "what they said about it", "date": "approx date", "source": "which search found it" }
+  ]
 }` }],
     }),
   });
-  const data = await res.json();
-  const text = data.choices?.[0]?.message?.content || "";
-  const m = text.match(/\{[\s\S]*\}/);
-  if (!m) throw new Error("Could not parse tweet data");
-  return JSON.parse(m[0].replace(/```json|```/g, "").trim());
+  const data1 = await res1.json();
+  const text1 = data1.choices?.[0]?.message?.content || "";
+  const m1 = text1.match(/\{[\s\S]*\}/);
+  if (!m1) throw new Error("Could not find any data for @" + handle);
+  const initial = JSON.parse(m1[0].replace(/```json|```/g, "").trim());
+
+  // Step 2: deep dive — search specifically for each ticker found + look for more
+  const tickersFound = initial.tickers_found || [];
+  const res2 = await fetch("/api/tweets", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "openai/gpt-4o-mini-search-preview", max_tokens: 4000,
+      messages: [{ role: "user", content: `You are doing a DEEP investigation of crypto Twitter account @${handle}.
+
+From a previous search I already found these tickers: ${tickersFound.map(t => "$" + t).join(", ") || "none yet"}
+
+Now do these ADDITIONAL searches to find MORE tickers and details:
+1. Search: "from:${handle}" site:x.com — look at their recent tweets
+2. Search: "${handle}" site:x.com 2025 — find tweets from this year
+3. Search: "${handle}" site:x.com 2024 — find tweets from last year
+${tickersFound.slice(0, 5).map((t, i) => `${i + 4}. Search: "${handle} $${t}" — find specific mentions of $${t}`).join("\n")}
+${tickersFound.length > 0 ? `${tickersFound.length + 4}. Search: "site:x.com/${handle}" NOT ${tickersFound.slice(0, 3).map(t => "$" + t).join(" NOT ")} — find OTHER tickers they mentioned` : ""}
+
+IMPORTANT: For each ticker, I need:
+- How many times approximately they mentioned it
+- The sentiment (bullish/bearish/neutral)  
+- Example tweets (paraphrased)
+- Approximate dates
+- Engagement level
+
+Combine everything (including the tickers I already found: ${tickersFound.join(", ")}) into this JSON format. Respond ONLY with valid JSON:
+{
+  "handle": "${handle}",
+  "bio": "${initial.bio || "unknown"}",
+  "followerCount": "${initial.followerCount || "unknown"}",
+  "tickers": [
+    {
+      "symbol": "TICKER",
+      "mentions": [
+        { "date": "2025-01-15", "sentiment": "bullish", "text": "what they said", "engagement": "high" }
+      ],
+      "totalMentions": 5,
+      "overallSentiment": "bullish"
+    }
+  ],
+  "shillFrequency": "X tweets per week",
+  "topTicker": "$TICKER"
+}` }],
+    }),
+  });
+  const data2 = await res2.json();
+  const text2 = data2.choices?.[0]?.message?.content || "";
+  const m2 = text2.match(/\{[\s\S]*\}/);
+  if (!m2) throw new Error("Could not parse tweet data");
+  return JSON.parse(m2[0].replace(/```json|```/g, "").trim());
 }
 
 async function getVerdict(shillData, model) {
@@ -107,18 +164,18 @@ export default function App() {
   const log = useCallback((m) => setLogs((p) => [...p, { t: new Date().toLocaleTimeString(), m }]), []);
   const clean = handle.replace("@", "").trim();
 
-  const PHASES = [`Searching X for @${clean}...`, "Extracting tickers...", "Querying DexScreener...", "Calculating metrics...", "AI verdict via OpenRouter...", "Done!"];
+  const PHASES = [`Broad search for @${clean}...`, `Deep dive — finding more tickers...`, "Querying DexScreener...", "Calculating metrics...", "AI verdict via OpenRouter...", "Done!"];
 
   const run = useCallback(async () => {
     if (!clean) return;
     setLoading(true); setReport(null); setVerdict(null); setError(null); setExpandedTicker(null); setLogs([]);
     try {
-      setPhaseIdx(0); log("Searching web for tweets...");
+      setPhaseIdx(0); log("Running 5+ targeted web searches...");
       const tw = await discoverTweets(clean);
-      log(`Found ${tw.tickers?.length || 0} tickers`);
+      setPhaseIdx(1); log(`Found ${tw.tickers?.length || 0} tickers`);
+      log(`Tickers: ${tw.tickers?.map((t) => "$" + t.symbol).join(", ") || "none"}`);
       if (!tw.tickers?.length) throw new Error(`No crypto tickers found for @${clean}`);
 
-      setPhaseIdx(1); log(`Tickers: ${tw.tickers.map((t) => "$" + t.symbol).join(", ")}`);
       setPhaseIdx(2);
       const enriched = [];
       for (const t of tw.tickers) {
