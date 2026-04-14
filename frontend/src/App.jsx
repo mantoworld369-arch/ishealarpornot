@@ -27,8 +27,7 @@ async function discoverTweets(handle) {
   const res = await fetch("/api/tweets", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514", max_tokens: 4000,
-      tools: [{ type: "web_search_20250305", name: "web_search" }],
+      model: "openai/gpt-4o-mini-search-preview", max_tokens: 4000,
       messages: [{ role: "user", content: `Search for the crypto Twitter/X account @${handle}. Find what cryptocurrency tokens they have tweeted about or promoted in the past year.
 
 Search for: "@${handle} crypto", "@${handle} token", "from:${handle} $"
@@ -49,7 +48,7 @@ Respond ONLY with valid JSON, no markdown:
     }),
   });
   const data = await res.json();
-  const text = data.content?.map((i) => (i.type === "text" ? i.text : "")).filter(Boolean).join("\n") || "";
+  const text = data.choices?.[0]?.message?.content || "";
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) throw new Error("Could not parse tweet data");
   return JSON.parse(m[0].replace(/```json|```/g, "").trim());
