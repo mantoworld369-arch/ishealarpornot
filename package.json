@@ -1,0 +1,10 @@
+{
+  "name": "ishealarpornot",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "setup": "cd frontend && npm install && cd ../server && npm install && cd ../frontend && npm run build",
+    "start": "node server/index.js",
+    "dev": "node server/index.js"
+  }
+}
